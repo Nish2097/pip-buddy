@@ -1,0 +1,11 @@
+{
+  "name": "pip",
+  "owner": { "name": "Pip contributors" },
+  "plugins": [
+    {
+      "name": "pip",
+      "source": "./plugin",
+      "description": "A little mascot that pops up on your Mac when your coding agent finishes or needs you."
+    }
+  ]
+}
