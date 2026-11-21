@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         model.handle(PipEvent(state: "done", source: "Pip",
-                              message: "Hi, I'm Pip! I'll pop up when your agent finishes."))
+                              message: "Hi, I'm Pip! I'll nap here and wake up when your agent needs you."))
     }
 
     // MARK: Floating window
@@ -100,15 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mute.state = model.muted ? .on : .off
         menu.addItem(mute)
 
-        let peek = NSMenuItem(title: "Peek While Working", action: #selector(togglePeek), keyEquivalent: "")
-        peek.target = self
-        peek.state = model.peekWhileWorking ? .on : .off
-        menu.addItem(peek)
+        let hide = NSMenuItem(title: "Hide While Sleeping", action: #selector(toggleHideWhenSleeping), keyEquivalent: "")
+        hide.target = self
+        hide.state = model.hideWhenSleeping ? .on : .off
+        menu.addItem(hide)
 
         menu.addItem(.separator())
         let test = NSMenuItem(title: "Try an Animation", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        for (title, state) in [("Working", "working"), ("Needs You", "needs-input"), ("Done", "done"), ("Hide", "hide")] {
+        for (title, state) in [("Working", "working"), ("Needs You", "needs-input"), ("Done", "done"), ("Sleep", "sleep")] {
             let item = NSMenuItem(title: title, action: #selector(tryAnimation(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = state
@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleMute() { model.muted.toggle(); rebuildMenu() }
-    @objc private func togglePeek() { model.peekWhileWorking.toggle(); rebuildMenu() }
+    @objc private func toggleHideWhenSleeping() { model.hideWhenSleeping.toggle(); rebuildMenu() }
     @objc private func tryAnimation(_ sender: NSMenuItem) {
         guard let state = sender.representedObject as? String else { return }
         let message = state == "needs-input" ? "Claude needs your permission to use Bash" : nil

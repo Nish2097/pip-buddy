@@ -2,37 +2,43 @@ import AppKit
 import SwiftUI
 
 enum Mood: Equatable {
-    case hidden      // tucked away below the screen edge
-    case working     // peeking up, eyes looking around
-    case needsInput  // popped up, waving for attention
-    case done        // popped up, jumping with confetti
+    case sleeping    // idle: dozing in the corner
+    case working     // awake, eyes looking around
+    case needsInput  // waving for attention
+    case done        // jumping with confetti
+    case hidden      // only when "Hide While Sleeping" is on
 }
 
 @MainActor
 final class PipModel: ObservableObject {
-    @Published private(set) var mood: Mood = .hidden
+    @Published private(set) var mood: Mood = .sleeping
     @Published private(set) var message = ""
     @Published private(set) var source = ""
-    /// When the current mood started; drives one-off animations like confetti.
+    /// When the current mood started; drives one-off animations (wake-up stretch, confetti).
     @Published private(set) var moodStarted = Date()
+    /// True when this mood began by waking up from sleep.
+    @Published private(set) var justWoke = false
 
-    /// Called when the mascot becomes clickable (popped up) or not.
+    /// Called when Pip becomes clickable (bubble showing) or not.
     var onInteractiveChange: ((Bool) -> Void)?
+
+    /// Skips sounds (used when rendering snapshots).
+    var silent = false
 
     var muted: Bool {
         get { UserDefaults.standard.bool(forKey: "muted") }
         set { UserDefaults.standard.set(newValue, forKey: "muted") }
     }
 
-    var peekWhileWorking: Bool {
-        get { UserDefaults.standard.object(forKey: "peekWhileWorking") as? Bool ?? true }
+    var hideWhenSleeping: Bool {
+        get { UserDefaults.standard.bool(forKey: "hideWhenSleeping") }
         set {
-            UserDefaults.standard.set(newValue, forKey: "peekWhileWorking")
-            if mood == .working && !newValue { set(.hidden) }
+            UserDefaults.standard.set(newValue, forKey: "hideWhenSleeping")
+            if mood == .sleeping || mood == .hidden { rest() }
         }
     }
 
-    private var hideTask: Task<Void, Never>?
+    private var timer: Task<Void, Never>?
 
     private let doneLines = [
         "Hey! Your task is complete.",
@@ -47,10 +53,13 @@ final class PipModel: ObservableObject {
         source = Self.displayName(for: event.source)
         switch event.state {
         case "working":
-            guard peekWhileWorking else { set(.hidden); return }
-            guard mood != .working else { return } // fires on every tool call; no need to restart
-            message = ""
-            set(.working)
+            // Fires on every tool call: keep the current animation, just push back the nap.
+            if mood != .working {
+                message = ""
+                set(.working)
+            }
+            // If the agent is interrupted, no "done" ever arrives. Doze off eventually.
+            restAfter(seconds: 600)
         case "needs-input":
             message = event.message ?? "I need you for a sec!"
             set(.needsInput)
@@ -59,34 +68,36 @@ final class PipModel: ObservableObject {
             message = event.message ?? doneLines.randomElement()!
             set(.done)
             play("Glass")
-            hide(after: 6)
-        case "hide", "idle":
-            set(.hidden)
+            restAfter(seconds: 6)
+        case "hide", "idle", "sleep":
+            rest()
         default:
             break
         }
     }
 
-    func dismiss() { set(.hidden) }
+    /// Clicking Pip dismisses the bubble and sends it back to sleep.
+    func dismiss() { rest() }
+
+    private func rest() { set(hideWhenSleeping ? .hidden : .sleeping) }
 
     private func set(_ newMood: Mood) {
-        hideTask?.cancel()
-        hideTask = nil
+        timer?.cancel()
+        timer = nil
+        justWoke = (mood == .sleeping || mood == .hidden) && newMood != .sleeping && newMood != .hidden
         mood = newMood
         moodStarted = Date()
         onInteractiveChange?(newMood == .needsInput || newMood == .done)
     }
 
-    private func hide(after seconds: Double) {
-        hideTask = Task { [weak self] in
+    private func restAfter(seconds: Double) {
+        timer?.cancel()
+        timer = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            self?.set(.hidden)
+            self?.rest()
         }
     }
-
-    /// Skips sounds (used when rendering snapshots).
-    var silent = false
 
     private func play(_ name: String) {
         guard !muted, !silent else { return }

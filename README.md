@@ -1,12 +1,10 @@
 # Pip
 
-A little mascot that lives in the corner of your Mac and reacts to your AI coding agent:
-it peeks up while the agent works, waves when it needs your approval, and jumps with
-confetti when the task is done.
+A little liquid-glass blob that naps in the corner of your Mac and wakes up for your AI
+coding agent: it looks around while the agent works, waves when it needs your approval,
+and jumps with confetti when the task is done. Then it dozes off again.
 
-| Working | Needs you | Done |
-|---|---|---|
-| ![](docs/working.png) | ![](docs/needs-input.png) | ![](docs/done.png) |
+![Pip sleeping, working, needing input, and done](docs/all-poses.png)
 
 Works with **Claude Code** (CLI, the desktop app's Code tab, IDE extensions) and **Cursor**.
 Free and open source. Pip is built from source on your Mac, so it needs no Apple signing.
@@ -35,9 +33,9 @@ Restart Cursor afterwards. Remove it with `./pip/cursor/setup-cursor.sh --uninst
 
 ## Using it
 
-- Pip lives in the menu bar (smiley icon): mute sounds, turn off peeking while working,
+- Pip lives in the menu bar (smiley icon): mute sounds, hide Pip while it sleeps,
   try each animation, or quit.
-- Click Pip to dismiss a bubble.
+- Click Pip to dismiss a bubble and send it back to sleep.
 
 ## How it works
 
