@@ -11,8 +11,9 @@ Free and open source. Pip is built from source on your Mac, so it needs no Apple
 
 ## Install
 
-**Requirements:** macOS 13 or later, and Xcode Command Line Tools
-(run `xcode-select --install` if you don't have them).
+**Requirements:** macOS 13 or later on Apple Silicon or Intel, and Xcode Command Line Tools 15
+or later (run `xcode-select --install` if you don't have them). Nothing else: no Homebrew,
+no `jq`, no Node.
 
 ### Claude Code (CLI, desktop app Code tab, or IDE extension)
 
@@ -49,6 +50,21 @@ Restart Cursor.
   try each animation, or quit.
 - Click Pip to dismiss a bubble and send it back to sleep.
 
+Pip is light on battery: while it naps or watches your agent work, it uses about 0% CPU
+and under 30 MB of memory. Only the few-second wake-up and celebration animations do real work.
+On macOS 26 and later its body uses the system Liquid Glass; older versions get a frosted blur.
+
+## Troubleshooting
+
+- **Pip never appeared.** The first build runs in the background when a Claude Code session
+  starts. Check `$TMPDIR/pip-install.log`, or build it yourself to see any errors:
+  `~/.claude/plugins/cache/pip/pip/*/scripts/install-app.sh`
+- **"Pip couldn't install" notification.** Usually Xcode Command Line Tools are missing:
+  run `xcode-select --install`, then start a new session.
+- **Nothing happens in Cursor.** Restart Cursor after running the setup script, and check
+  that `~/.cursor/hooks.json` contains the Pip entries.
+- **Test Pip by hand:** `curl "127.0.0.1:47823/event?state=done"`
+
 ## How it works
 
 ```
@@ -82,6 +98,7 @@ cursor/setup-cursor.sh            adds the hooks to ~/.cursor/hooks.json
 ```
 
 `~/Applications/Pip.app/Contents/MacOS/Pip --snapshot <dir>` renders each pose to a PNG.
+After a plugin update, Pip rebuilds itself automatically at the next session start.
 
 ## License
 

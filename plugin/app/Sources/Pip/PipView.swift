@@ -22,7 +22,7 @@ enum PipColors {
 
 /// Snapshot rendering can't capture the system glass material, so it turns it off.
 enum PipRender {
-    @MainActor static var useSystemGlass = true
+    @MainActor static var useSystemGlass = ProcessInfo.processInfo.environment["PIP_NO_GLASS"] == nil
     /// Snapshots freeze blinking so eyes are always open.
     @MainActor static var allowBlink = true
 }
@@ -31,6 +31,9 @@ enum PipRender {
 
 struct PipView: View {
     @ObservedObject var model: PipModel
+    /// Eye glances and blinks are short one-off animations, so they stay cheap while calm.
+    @State private var lookX: CGFloat = 0
+    @State private var blink = false
 
     static let windowSize = CGSize(width: 300, height: 300)
 
@@ -46,14 +49,21 @@ struct PipView: View {
     }
 
     var body: some View {
-        TimelineView(.animation) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let since = timeline.date.timeIntervalSince(model.moodStarted)
+        // When calm (napping, working, or waiting a while), SwiftUI stops redrawing every frame.
+        // Breathing then runs in Core Animation (AppDelegate.updateBreathing), which costs
+        // almost no CPU. Only short events (waking, waving, celebrating) animate per frame.
+        let calm = model.isCalm
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: calm)) { timeline in
+            let t = calm ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            let since = calm ? 10 : max(0, timeline.date.timeIntervalSince(model.moodStarted))
             let pose = Pose(mood: model.mood, t: t, since: since, justWoke: model.justWoke)
 
             ZStack(alignment: .bottom) {
                 if model.mood == .done {
                     ConfettiView(started: model.moodStarted, now: timeline.date)
+                }
+                if model.mood == .sleeping && !PipRender.useSystemGlass {
+                    SnapshotZs()
                 }
 
                 // Ground shadow stays put and shrinks as Pip jumps.
@@ -71,7 +81,7 @@ struct PipView: View {
                             .transition(.scale(scale: 0.6, anchor: .bottom).combined(with: .opacity))
                             .id(model.moodStarted)
                     }
-                    BlobView(mood: model.mood, t: t, since: since, pose: pose)
+                    BlobView(mood: model.mood, t: t, pose: pose, calm: calm, lookX: lookX, blink: blink)
                         .frame(width: 128, height: 112)
                 }
                 .padding(.bottom, 8)
@@ -84,6 +94,27 @@ struct PipView: View {
         .onTapGesture { model.dismiss() }
         .animation(.spring(response: 0.5, dampingFraction: 0.62), value: model.mood)
         .animation(.spring(response: 0.5, dampingFraction: 0.62), value: model.moodStarted)
+        .task(id: model.mood) { await glanceAround() }
+    }
+
+    /// Every few seconds: maybe look somewhere else, maybe blink.
+    private func glanceAround() async {
+        lookX = 0
+        blink = false
+        let mood = model.mood
+        guard mood == .working || mood == .needsInput else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(Double.random(in: 1.6...3.2) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            if mood == .working {
+                withAnimation(.easeInOut(duration: 0.45)) { lookX = [-7, -3, 0, 4, 7].randomElement()! }
+            }
+            if Bool.random() {
+                withAnimation(.easeOut(duration: 0.07)) { blink = true }
+                try? await Task.sleep(nanoseconds: 130_000_000)
+                withAnimation(.easeIn(duration: 0.1)) { blink = false }
+            }
+        }
     }
 }
 
@@ -190,7 +221,7 @@ struct Pose {
 // MARK: - Liquid shape
 
 /// An ellipse whose edge ripples like liquid. `t` is time; `amount` scales the ripples.
-struct LiquidShape: Shape {
+struct LiquidShape: Shape, Equatable {
     var t: Double
     var amount: Double
 
@@ -230,15 +261,18 @@ struct LiquidShape: Shape {
 struct BlobView: View {
     let mood: Mood
     let t: Double
-    let since: Double
     let pose: Pose
+    let calm: Bool
+    let lookX: CGFloat
+    let blink: Bool
 
     var body: some View {
-        let shape = LiquidShape(t: t * pose.flow, amount: pose.wobble)
+        // While calm the glass is frozen, so SwiftUI can skip redrawing it entirely.
+        let shape = LiquidShape(t: calm ? 0 : t * pose.flow, amount: pose.wobble)
 
         ZStack {
-            GlassBody(shape: shape, t: t)
-            FaceView(mood: mood, t: t)
+            GlassBody(shape: shape, t: t).equatable()
+            FaceView(mood: mood, t: t, lookX: lookX, blink: blink)
         }
         .frame(width: 120, height: 104)
         .overlay(alignment: .topTrailing) {
@@ -252,9 +286,6 @@ struct BlobView: View {
                     .offset(x: -16, y: 14)
             }
         }
-        .overlay(alignment: .topTrailing) {
-            if mood == .sleeping { SleepyZs(t: t).offset(x: 14, y: -18) }
-        }
         .scaleEffect(x: pose.sx, y: pose.sy, anchor: .bottom)
         .rotationEffect(.degrees(pose.tilt), anchor: .bottom)
         .frame(width: 128, height: 112, alignment: .bottom)
@@ -262,7 +293,7 @@ struct BlobView: View {
 }
 
 /// Layers that make a translucent, liquid-glass body.
-struct GlassBody: View {
+struct GlassBody: View, Equatable {
     let shape: LiquidShape
     let t: Double
 
@@ -273,6 +304,8 @@ struct GlassBody: View {
                 SystemGlass(shape: shape)
             }
 
+            // Layers 2–7 are flattened into one GPU texture per frame; much cheaper to draw.
+            ZStack {
             // 2. A soft tint so Pip reads as a body, not a hole.
             shape.fill(LinearGradient(colors: [PipColors.tintTop.opacity(0.42),
                                                PipColors.tintBottom.opacity(0.55)],
@@ -317,6 +350,8 @@ struct GlassBody: View {
                 .fill(Color.white.opacity(0.9))
                 .frame(width: 6, height: 6)
                 .offset(x: -6, y: -40)
+            }
+            .drawingGroup()
         }
     }
 }
@@ -326,11 +361,17 @@ struct SystemGlass: View {
     let shape: LiquidShape
 
     var body: some View {
+        // glassEffect only exists in the macOS 26 SDK (Xcode 26 / Swift 6.2). Older
+        // toolchains, e.g. on macOS 13–14, compile the blur fallback instead.
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             Color.clear.glassEffect(.clear, in: shape)
         } else {
             BehindWindowBlur().mask(shape)
         }
+        #else
+        BehindWindowBlur().mask(shape)
+        #endif
     }
 }
 
@@ -345,24 +386,24 @@ struct BehindWindowBlur: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-// MARK: - Sleeping Zs
+// MARK: - Sleeping Zs (snapshots only)
 
-struct SleepyZs: View {
-    let t: Double
-
+/// On screen the Zs are Core Animation layers (SleepyZView). Snapshots can't capture those,
+/// so this draws them at the same window positions, frozen at three points of their path.
+struct SnapshotZs: View {
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            ForEach(0..<3, id: \.self) { i in
-                let p = (t * 0.35 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
+        let h = PipView.windowSize.height
+        ZStack {
+            ForEach([0.2, 0.5, 0.8], id: \.self) { p in
                 Text("z")
-                    .font(.system(size: 13 + p * 9, weight: .heavy, design: .rounded))
+                    .font(.system(size: 15 * (0.85 + 0.65 * p), weight: .heavy, design: .rounded))
                     .foregroundColor(PipColors.sleepZ)
                     .shadow(color: .white.opacity(0.9), radius: 1.5)
-                    .opacity(sin(p * .pi))
-                    .offset(x: p * 16 + sin(p * 6) * 2, y: -p * 34)
+                    .position(x: SleepyZView.start.x + SleepyZView.rise.x * p,
+                              y: h - (SleepyZView.start.y + SleepyZView.rise.y * p))
             }
         }
-        .frame(width: 30, height: 40, alignment: .bottomLeading)
+        .frame(width: PipView.windowSize.width, height: h)
     }
 }
 
@@ -371,8 +412,10 @@ struct SleepyZs: View {
 struct FaceView: View {
     let mood: Mood
     let t: Double
+    let lookX: CGFloat
+    let blink: Bool
 
-    private var blinking: Bool { PipRender.allowBlink && t.truncatingRemainder(dividingBy: 3.8) < 0.13 }
+    private var blinking: Bool { PipRender.allowBlink && blink }
 
     var body: some View {
         ZStack {
@@ -380,7 +423,7 @@ struct FaceView: View {
                 .offset(y: 12)
 
             HStack(spacing: 26) { eye; eye }
-                .offset(x: mood == .working ? sin(t * 0.7) * 7 : 0, y: -6)
+                .offset(x: mood == .working ? lookX : 0, y: -6)
 
             mouth.offset(y: 16)
         }

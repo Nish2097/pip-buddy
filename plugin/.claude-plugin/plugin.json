@@ -1,6 +1,6 @@
 {
   "name": "pip",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A little mascot that pops up on your Mac when your coding agent finishes or needs you.",
   "license": "MIT",
   "keywords": ["mascot", "notifications", "macos", "fun"]

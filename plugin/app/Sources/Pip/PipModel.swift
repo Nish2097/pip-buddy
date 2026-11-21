@@ -18,9 +18,16 @@ final class PipModel: ObservableObject {
     @Published private(set) var moodStarted = Date()
     /// True when this mood began by waking up from sleep.
     @Published private(set) var justWoke = false
+    /// True once the opening animation of a mood is over and Pip can idle cheaply.
+    @Published private(set) var settled = false
+
+    /// Calm moods are drawn once and animated only by Core Animation (near-zero CPU).
+    var isCalm: Bool { mood == .sleeping || mood == .hidden || settled }
 
     /// Called when Pip becomes clickable (bubble showing) or not.
     var onInteractiveChange: ((Bool) -> Void)?
+    /// Called whenever the mood changes.
+    var onMoodChange: ((Mood) -> Void)?
 
     /// Skips sounds (used when rendering snapshots).
     var silent = false
@@ -39,6 +46,7 @@ final class PipModel: ObservableObject {
     }
 
     private var timer: Task<Void, Never>?
+    private var settleTimer: Task<Void, Never>?
 
     private let doneLines = [
         "Hey! Your task is complete.",
@@ -84,10 +92,29 @@ final class PipModel: ObservableObject {
     private func set(_ newMood: Mood) {
         timer?.cancel()
         timer = nil
+        settleTimer?.cancel()
+        settled = false
         justWoke = (mood == .sleeping || mood == .hidden) && newMood != .sleeping && newMood != .hidden
         mood = newMood
         moodStarted = Date()
         onInteractiveChange?(newMood == .needsInput || newMood == .done)
+        onMoodChange?(newMood)
+
+        // Working settles once the wake-up stretch is over; waiting for you settles after
+        // a few seconds of waving. "Done" is short anyway, so it stays fully animated.
+        let settleAfter: Double? = switch newMood {
+        case .working: 1.0
+        case .needsInput: 12
+        default: nil
+        }
+        if let settleAfter {
+            settleTimer = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(settleAfter * 1_000_000_000))
+                guard let self, !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.3)) { self.settled = true }
+                self.onMoodChange?(self.mood)
+            }
+        }
     }
 
     private func restAfter(seconds: Double) {

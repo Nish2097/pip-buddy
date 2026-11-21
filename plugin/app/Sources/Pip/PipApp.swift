@@ -59,16 +59,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
 
+        // Container: the SwiftUI view, plus a Core Animation layer for the sleepy Zs on top.
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.wantsLayer = true
         let host = NSHostingView(rootView: PipView(model: model))
-        host.frame = NSRect(origin: .zero, size: size)
-        panel.contentView = host
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        host.wantsLayer = true
+        container.addSubview(host)
+        container.addSubview(zView)
+        hostView = host
+        panel.contentView = container
 
         model.onInteractiveChange = { [weak self] clickable in
             self?.panel.ignoresMouseEvents = !clickable
         }
+        model.onMoodChange = { [weak self] _ in self?.updateIdleAnimations() }
+        updateIdleAnimations()
 
         positionPanel()
         panel.orderFrontRegardless()
+    }
+
+    private var hostView: NSView?
+    private let zView = SleepyZView(frame: NSRect(origin: .zero, size: PipView.windowSize))
+
+    /// Breathing and floating Zs for calm moods. These run in Core Animation in the
+    /// window server, so the app itself does almost no work while Pip idles.
+    private func updateIdleAnimations() {
+        let mood = model.mood
+        zView.isAnimating = mood == .sleeping
+
+        guard let layer = hostView?.layer else { return }
+        layer.removeAnimation(forKey: "breathe")
+        let style: (amount: CGFloat, halfPeriod: Double)? = switch mood {
+        case .sleeping: (0.035, 2.8)
+        case .working where model.isCalm: (0.022, 1.4)
+        default: nil
+        }
+        guard let style else { return }
+
+        // Scale around the bottom-center of the window, wherever the layer's anchor is.
+        let pivotX = layer.bounds.width * (0.5 - layer.anchorPoint.x)
+        let pivotY = layer.bounds.height * (0 - layer.anchorPoint.y)
+        func breath(_ k: CGFloat) -> NSValue {
+            var m = CATransform3DMakeTranslation(pivotX, pivotY, 0)
+            m = CATransform3DScale(m, 1 - k * 0.8, 1 + k, 1)
+            m = CATransform3DTranslate(m, -pivotX, -pivotY, 0)
+            return NSValue(caTransform3D: m)
+        }
+        let anim = CABasicAnimation(keyPath: "transform")
+        anim.fromValue = breath(-style.amount)
+        anim.toValue = breath(style.amount)
+        anim.duration = style.halfPeriod
+        anim.autoreverses = true
+        anim.repeatCount = .infinity
+        anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(anim, forKey: "breathe")
     }
 
     private func positionPanel() {

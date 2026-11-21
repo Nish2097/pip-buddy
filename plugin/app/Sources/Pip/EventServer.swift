@@ -37,6 +37,8 @@ final class EventServer: @unchecked Sendable {
 
     private func handle(_ connection: NWConnection) {
         connection.start(queue: queue)
+        // Drop connections that never send a request.
+        queue.asyncAfter(deadline: .now() + 5) { connection.cancel() }
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, _ in
             let ok = self?.process(data) ?? false
             let body = ok ? "ok" : "bad request"
@@ -62,7 +64,7 @@ final class EventServer: @unchecked Sendable {
             var query: [String: String] = [:]
             for item in components.queryItems ?? [] { query[item.name] = item.value ?? "" }
             guard let state = query["state"], !state.isEmpty else { return false }
-            let message = query["message"].flatMap { $0.isEmpty ? nil : $0 }
+            let message = query["message"].flatMap { $0.isEmpty ? nil : String($0.prefix(300)) }
             onEvent(PipEvent(state: state, source: query["source"] ?? "", message: message))
             return true
         default:

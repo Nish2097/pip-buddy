@@ -8,33 +8,55 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOKS_DIR="$HOME/.cursor/hooks"
 HOOKS_FILE="$HOME/.cursor/hooks.json"
 SCRIPT="$HOOKS_DIR/pip-event.sh"
+MODE="${1:-install}"
 
-command -v jq >/dev/null || { echo "This script needs jq." >&2; exit 1; }
 mkdir -p "$HOOKS_DIR"
-[ -f "$HOOKS_FILE" ] || echo '{"version":1,"hooks":{}}' > "$HOOKS_FILE"
-cp "$HOOKS_FILE" "$HOOKS_FILE.bak"
+[ -f "$HOOKS_FILE" ] && cp "$HOOKS_FILE" "$HOOKS_FILE.bak"
 
-# Drop any existing Pip entries first.
-STRIPPED="$(jq --arg s "$SCRIPT" '
-  .version //= 1 | .hooks //= {}
-  | .hooks |= with_entries(.value |= map(select((.command // "") | contains($s) | not)))
-  | .hooks |= with_entries(select(.value | length > 0))
-' "$HOOKS_FILE")"
-
-if [ "${1:-}" = "--uninstall" ]; then
-  printf '%s\n' "$STRIPPED" > "$HOOKS_FILE"
-  rm -f "$SCRIPT"
-  echo "Removed Pip from Cursor hooks."
-  exit 0
+if [ "$MODE" != "--uninstall" ]; then
+  cp "$HERE/../plugin/scripts/pip-event.sh" "$SCRIPT"
+  chmod +x "$SCRIPT"
 fi
 
-cp "$HERE/../plugin/scripts/pip-event.sh" "$SCRIPT"
-chmod +x "$SCRIPT"
+# Edit the JSON with Python (ships with Xcode Command Line Tools, which Pip needs anyway).
+/usr/bin/python3 -I - "$HOOKS_FILE" "$SCRIPT" "$MODE" <<'PY'
+import json, os, sys
 
-printf '%s\n' "$STRIPPED" | jq --arg s "$SCRIPT" '
-  .hooks.beforeSubmitPrompt += [{"command": ("\"" + $s + "\" working cursor")}]
-  | .hooks.stop += [{"command": ("\"" + $s + "\" done cursor")}]
-' > "$HOOKS_FILE"
+path, script, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as f:
+        config = json.load(f)
+except FileNotFoundError:
+    config = {}
+except json.JSONDecodeError:
+    sys.exit(f"{path} isn't valid JSON; fix it or move it aside, then run this again.")
 
-echo "Pip added to Cursor hooks ($HOOKS_FILE). Backup saved as hooks.json.bak."
-echo "Restart Cursor if it's open."
+config.setdefault("version", 1)
+hooks = config.setdefault("hooks", {})
+
+# Drop any existing Pip entries first, so this is safe to re-run.
+for event in list(hooks):
+    hooks[event] = [h for h in hooks[event] if script not in h.get("command", "")]
+    if not hooks[event]:
+        del hooks[event]
+
+if mode != "--uninstall":
+    quoted = '"' + script + '"'
+    hooks.setdefault("beforeSubmitPrompt", []).append({"command": quoted + " working cursor"})
+    hooks.setdefault("stop", []).append({"command": quoted + " done cursor"})
+
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+
+if [ "$MODE" = "--uninstall" ]; then
+  rm -f "$SCRIPT"
+  echo "Removed Pip from Cursor hooks."
+else
+  echo "Pip added to Cursor hooks ($HOOKS_FILE)."
+  [ -f "$HOOKS_FILE.bak" ] && echo "Your previous file is saved as hooks.json.bak."
+  echo "Restart Cursor if it's open."
+fi
