@@ -21,6 +21,49 @@ enum PipMain {
     }
 }
 
+/// User preferences shown in the menu bar, saved between launches.
+enum PipSettings {
+    enum Size: String, CaseIterable {
+        case small, medium, large
+        var title: String { rawValue.capitalized }
+        var scale: CGFloat {
+            switch self {
+            case .small: return 0.75
+            case .medium: return 1
+            case .large: return 1.3
+            }
+        }
+    }
+
+    enum Corner: String, CaseIterable {
+        case bottomRight, bottomLeft
+        var title: String { self == .bottomRight ? "Bottom Right" : "Bottom Left" }
+    }
+
+    static var size: Size {
+        get { Size(rawValue: UserDefaults.standard.string(forKey: "size") ?? "") ?? .medium }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "size") }
+    }
+
+    static var corner: Corner {
+        get { Corner(rawValue: UserDefaults.standard.string(forKey: "corner") ?? "") ?? .bottomRight }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "corner") }
+    }
+}
+
+/// PipView drawn at the chosen size, growing from the bottom-center.
+struct ScaledPipView: View {
+    @ObservedObject var model: PipModel
+    let scale: CGFloat
+
+    var body: some View {
+        PipView(model: model)
+            .scaleEffect(scale, anchor: .bottom)
+            .frame(width: PipView.windowSize.width * scale,
+                   height: PipView.windowSize.height * scale, alignment: .bottom)
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = PipModel()
@@ -62,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Container: the SwiftUI view, plus a Core Animation layer for the sleepy Zs on top.
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
-        let host = NSHostingView(rootView: PipView(model: model))
+        let host = NSHostingView(rootView: ScaledPipView(model: model, scale: PipSettings.size.scale))
         host.frame = container.bounds
         host.autoresizingMask = [.width, .height]
         host.wantsLayer = true
@@ -70,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         container.addSubview(zView)
         hostView = host
         panel.contentView = container
+        applySize()
 
         model.onInteractiveChange = { [weak self] clickable in
             self?.panel.ignoresMouseEvents = !clickable
@@ -81,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
     }
 
-    private var hostView: NSView?
+    private var hostView: NSHostingView<ScaledPipView>?
     private let zView = SleepyZView(frame: NSRect(origin: .zero, size: PipView.windowSize))
 
     /// Breathing and floating Zs for calm moods. These run in Core Animation in the
@@ -118,11 +162,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layer.add(anim, forKey: "breathe")
     }
 
+    /// Resizes the window and everything in it to the chosen size.
+    private func applySize() {
+        let scale = PipSettings.size.scale
+        let size = NSSize(width: PipView.windowSize.width * scale,
+                          height: PipView.windowSize.height * scale)
+        panel.setContentSize(size)
+        panel.contentView?.frame = NSRect(origin: .zero, size: size)
+        hostView?.rootView = ScaledPipView(model: model, scale: scale)
+        zView.frame = NSRect(origin: .zero, size: size)
+        zView.scale = scale
+        positionPanel()
+        updateIdleAnimations() // the breathing pivot depends on the window size
+    }
+
     private func positionPanel() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let visible = screen.visibleFrame
-        let size = PipView.windowSize
-        panel.setFrameOrigin(NSPoint(x: visible.maxX - size.width - 12, y: visible.minY))
+        let width = panel.frame.width
+        let x = PipSettings.corner == .bottomRight ? visible.maxX - width - 12 : visible.minX + 12
+        panel.setFrameOrigin(NSPoint(x: x, y: visible.minY))
     }
 
     // MARK: Menu bar
@@ -142,15 +201,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
 
+        let settingsHeader = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        settingsHeader.isEnabled = false
+        menu.addItem(settingsHeader)
+
+        let hide = NSMenuItem(title: "Hide While Idle", action: #selector(toggleHideWhenIdle), keyEquivalent: "")
+        hide.target = self
+        hide.state = model.hideWhenSleeping ? .on : .off
+        hide.toolTip = "Pip disappears while napping and pops up when your agent does something."
+        menu.addItem(hide)
+
         let mute = NSMenuItem(title: "Mute Sounds", action: #selector(toggleMute), keyEquivalent: "")
         mute.target = self
         mute.state = model.muted ? .on : .off
         menu.addItem(mute)
 
-        let hide = NSMenuItem(title: "Hide While Sleeping", action: #selector(toggleHideWhenSleeping), keyEquivalent: "")
-        hide.target = self
-        hide.state = model.hideWhenSleeping ? .on : .off
-        menu.addItem(hide)
+        menu.addItem(choiceMenu(title: "Size", options: PipSettings.Size.allCases.map { ($0.title, $0.rawValue) },
+                                selected: PipSettings.size.rawValue, action: #selector(chooseSize(_:))))
+        menu.addItem(choiceMenu(title: "Corner", options: PipSettings.Corner.allCases.map { ($0.title, $0.rawValue) },
+                                selected: PipSettings.corner.rawValue, action: #selector(chooseCorner(_:))))
 
         menu.addItem(.separator())
         let test = NSMenuItem(title: "Try an Animation", action: nil, keyEquivalent: "")
@@ -171,7 +240,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleMute() { model.muted.toggle(); rebuildMenu() }
-    @objc private func toggleHideWhenSleeping() { model.hideWhenSleeping.toggle(); rebuildMenu() }
+    /// A submenu of options with a checkmark on the selected one.
+    private func choiceMenu(title: String, options: [(title: String, value: String)],
+                            selected: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for option in options {
+            let choice = NSMenuItem(title: option.title, action: action, keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = option.value
+            choice.state = option.value == selected ? .on : .off
+            submenu.addItem(choice)
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func toggleHideWhenIdle() { model.hideWhenSleeping.toggle(); rebuildMenu() }
+
+    @objc private func chooseSize(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let size = PipSettings.Size(rawValue: raw) else { return }
+        PipSettings.size = size
+        applySize()
+        rebuildMenu()
+    }
+
+    @objc private func chooseCorner(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let corner = PipSettings.Corner(rawValue: raw) else { return }
+        PipSettings.corner = corner
+        positionPanel()
+        rebuildMenu()
+    }
     @objc private func tryAnimation(_ sender: NSMenuItem) {
         guard let state = sender.representedObject as? String else { return }
         let message = state == "needs-input" ? "Claude needs your permission to use Bash" : nil

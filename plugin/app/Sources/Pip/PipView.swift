@@ -59,7 +59,8 @@ struct PipView: View {
             let pose = Pose(mood: model.mood, t: t, since: since, justWoke: model.justWoke)
 
             ZStack(alignment: .bottom) {
-                if model.mood == .done {
+                // A frozen burst looks like a smudge in still images, so snapshots skip it.
+                if model.mood == .done && PipRender.useSystemGlass {
                     ConfettiView(started: model.moodStarted, now: timeline.date)
                 }
                 if model.mood == .sleeping && !PipRender.useSystemGlass {

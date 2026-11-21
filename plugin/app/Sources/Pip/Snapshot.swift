@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// `Pip --snapshot <dir>` renders each mood to a PNG (plus one sheet with all of them) and exits.
-/// The system glass blur only exists on screen, so snapshots show the drawn glass layers
-/// over a colorful backdrop to make the transparency visible.
+/// Images have a transparent background so they sit nicely on any page (light or dark).
+/// The system glass blur only exists on screen, so snapshots show the drawn glass layers.
 @MainActor
 enum Snapshot {
     static func run(into dir: String) {
@@ -23,21 +23,24 @@ enum Snapshot {
             model.silent = true
             model.handle(event)
             tiles.append((name, model))
-            write(PipView(model: model).background(Backdrop()), to: dir, name: name)
+            write(PipView(model: model), to: dir, name: name)
         }
 
         let sheet = HStack(spacing: 0) {
             ForEach(tiles, id: \.0) { name, model in
                 VStack(spacing: 0) {
+                    // Trim the empty space above the tallest speech bubble.
                     PipView(model: model)
+                        .frame(height: 215, alignment: .bottom)
+                        .clipped()
                     Text(name.replacingOccurrences(of: "-", with: " ").capitalized)
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.bottom, 12)
+                        .foregroundColor(Color(white: 0.5)) // readable on light and dark pages
+                        .padding(.top, 6)
+                        .padding(.bottom, 8)
                 }
             }
         }
-        .background(Backdrop())
         write(sheet, to: dir, name: "all-poses")
     }
 
@@ -50,24 +53,5 @@ enum Snapshot {
         let url = URL(fileURLWithPath: dir).appendingPathComponent("\(name).png")
         try? png.write(to: url)
         print(url.path)
-    }
-}
-
-/// A wallpaper-like backdrop so the glass has something to show through.
-private struct Backdrop: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.36, green: 0.30, blue: 0.62),
-                                    Color(red: 0.95, green: 0.55, blue: 0.45)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            GeometryReader { geo in
-                ForEach(0..<Int(geo.size.width / 75), id: \.self) { i in
-                    Circle()
-                        .fill(i % 2 == 0 ? Color.yellow.opacity(0.55) : Color.cyan.opacity(0.5))
-                        .frame(width: 70, height: 70)
-                        .position(x: CGFloat(i) * 75 + 40, y: geo.size.height - 70 + (i % 3 == 0 ? -25 : 15))
-                }
-            }
-        }
     }
 }

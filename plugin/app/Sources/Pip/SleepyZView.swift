@@ -10,9 +10,14 @@ final class SleepyZView: NSView {
     /// top-right of the napping blob.
     static let start = CGPoint(x: 204, y: 60)
     static let rise = CGPoint(x: 16, y: 36)
-    private let start = SleepyZView.start
-    private let rise = SleepyZView.rise
+    private var start: CGPoint { CGPoint(x: Self.start.x * scale, y: Self.start.y * scale) }
+    private var rise: CGPoint { CGPoint(x: Self.rise.x * scale, y: Self.rise.y * scale) }
     private let cycle: CFTimeInterval = 2.9
+
+    /// Matches the chosen Pip size.
+    var scale: CGFloat = 1 {
+        didSet { if isAnimating { stopAnimating(); startAnimating() } }
+    }
 
     var isAnimating = false {
         didSet { if isAnimating != oldValue { isAnimating ? startAnimating() : stopAnimating() } }
@@ -35,7 +40,7 @@ final class SleepyZView: NSView {
             z.alignmentMode = .center
             z.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
             z.bounds = CGRect(x: 0, y: 0, width: 20, height: 22)
-            z.position = start
+            z.position = SleepyZView.start
             z.opacity = 0
             z.shadowColor = NSColor.white.cgColor
             z.shadowOpacity = 0.9
@@ -71,8 +76,8 @@ final class SleepyZView: NSView {
             fade.keyTimes = [0, 0.25, 0.6, 1]
 
             let grow = CABasicAnimation(keyPath: "transform.scale")
-            grow.fromValue = 0.85
-            grow.toValue = 1.5
+            grow.fromValue = 0.85 * scale
+            grow.toValue = 1.5 * scale
 
             let group = CAAnimationGroup()
             group.animations = [move, fade, grow]

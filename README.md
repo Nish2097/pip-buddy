@@ -46,9 +46,17 @@ Restart Cursor.
 
 ## Using it
 
-- Pip lives in the menu bar (smiley icon): mute sounds, hide Pip while it sleeps,
-  try each animation, or quit.
-- Click Pip to dismiss a bubble and send it back to sleep.
+Pip lives in the menu bar (the smiley icon). Its **Settings**:
+
+| Setting | What it does |
+|---|---|
+| **Hide While Idle** | Pip disappears while napping and pops up only when your agent does something |
+| **Mute Sounds** | No chime when a task finishes or your agent needs you |
+| **Size** | Small, Medium or Large |
+| **Corner** | Bottom right or bottom left of your screen |
+
+The menu also has **Try an Animation** to preview each state. Click Pip to dismiss a
+bubble and send it back to sleep.
 
 Pip is light on battery: while it naps or watches your agent work, it uses about 0% CPU
 and under 30 MB of memory. Only the few-second wake-up and celebration animations do real work.
