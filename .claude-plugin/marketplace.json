@@ -1,6 +1,6 @@
 {
   "name": "pip",
-  "owner": { "name": "Pip contributors" },
+  "owner": { "name": "Nishank Kumbhalwar" },
   "plugins": [
     {
       "name": "pip",
