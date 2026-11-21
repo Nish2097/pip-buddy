@@ -1,6 +1,6 @@
-# Pip
+# pip-buddy
 
-A little liquid-glass blob that naps in the corner of your Mac and wakes up for your AI
+Meet **Pip**, a little liquid-glass blob that naps in the corner of your Mac and wakes up for your AI
 coding agent: it looks around while the agent works, waves when it needs your approval,
 and jumps with confetti when the task is done. Then it dozes off again.
 
@@ -11,25 +11,37 @@ Free and open source. Pip is built from source on your Mac, so it needs no Apple
 
 ## Install
 
-You need macOS 13+ and Xcode Command Line Tools (`xcode-select --install`).
+**Requirements:** macOS 13 or later, and Xcode Command Line Tools
+(run `xcode-select --install` if you don't have them).
 
-### Claude Code
+### Claude Code (CLI, desktop app Code tab, or IDE extension)
+
+Run these inside Claude Code:
 
 ```
-/plugin marketplace add <github-user>/pip
+/plugin marketplace add Nish2097/pip-buddy
 /plugin install pip@pip
 ```
 
-Pip builds itself in the background the first time a session starts (about 30 seconds).
-To build it right away instead, run `plugin/scripts/install-app.sh`.
+Start a new session. The first time, Pip builds itself in the background
+(about 30 seconds) and then appears in the bottom-right corner of your screen.
 
 ### Cursor
 
 ```bash
-git clone https://github.com/<github-user>/pip && ./pip/cursor/setup-cursor.sh
+git clone https://github.com/Nish2097/pip-buddy.git
+cd pip-buddy
+./plugin/scripts/install-app.sh
+./cursor/setup-cursor.sh
 ```
 
-Restart Cursor afterwards. Remove it with `./pip/cursor/setup-cursor.sh --uninstall`.
+Restart Cursor.
+
+### Uninstall
+
+- Claude Code: `/plugin uninstall pip@pip`
+- Cursor: `./cursor/setup-cursor.sh --uninstall`
+- The app: quit Pip from the menu bar, then delete `~/Applications/Pip.app`
 
 ## Using it
 
@@ -73,4 +85,4 @@ cursor/setup-cursor.sh            adds the hooks to ~/.cursor/hooks.json
 
 ## License
 
-MIT
+[MIT](LICENSE)
