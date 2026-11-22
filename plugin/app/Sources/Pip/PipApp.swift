@@ -12,6 +12,10 @@ enum PipMain {
                 Snapshot.run(into: args[i + 1])
                 return
             }
+            if let i = args.firstIndex(of: "--demo"), i + 1 < args.count {
+                DemoVideo.render(to: args[i + 1], options: DemoVideo.Options(arguments: args))
+                return
+            }
             let app = NSApplication.shared
             let delegate = AppDelegate()
             app.delegate = delegate

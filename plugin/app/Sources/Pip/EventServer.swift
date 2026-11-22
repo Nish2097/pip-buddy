@@ -55,7 +55,9 @@ final class EventServer: @unchecked Sendable {
               let firstLine = request.split(separator: "\r\n", maxSplits: 1).first else { return false }
         let parts = firstLine.split(separator: " ")
         guard parts.count >= 2,
-              let components = URLComponents(string: "http://localhost" + parts[1]) else { return false }
+              var components = URLComponents(string: "http://localhost" + parts[1]) else { return false }
+        // Form encoding (curl --data-urlencode) sends spaces as "+"; a real "+" arrives as "%2B".
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%20")
 
         switch components.path {
         case "/health":

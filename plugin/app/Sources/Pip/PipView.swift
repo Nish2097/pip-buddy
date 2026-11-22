@@ -25,6 +25,20 @@ enum PipRender {
     @MainActor static var useSystemGlass = ProcessInfo.processInfo.environment["PIP_NO_GLASS"] == nil
     /// Snapshots freeze blinking so eyes are always open.
     @MainActor static var allowBlink = true
+
+    // Demo-video rendering (`Pip --demo`): a fixed clock and hand-driven transitions,
+    // because offscreen rendering has no real time and no Core Animation.
+    /// When set, the view draws this moment instead of the real time, always fully animated.
+    @MainActor static var clock: Date?
+    /// When set, replaces how far Pip sinks below the edge (to ease the wake/sleep motion).
+    @MainActor static var sinkOverride: CGFloat?
+    /// Lighter Zs for renders on a dark background.
+    @MainActor static var darkBackdrop = false
+}
+
+private func easeOutBack(_ x: Double) -> Double {
+    let c1 = 1.70158, c3 = c1 + 1
+    return 1 + c3 * pow(x - 1, 3) + c1 * pow(x - 1, 2)
 }
 
 // MARK: - Root view (fills the floating window)
@@ -52,19 +66,25 @@ struct PipView: View {
         // When calm (napping, working, or waiting a while), SwiftUI stops redrawing every frame.
         // Breathing then runs in Core Animation (AppDelegate.updateBreathing), which costs
         // almost no CPU. Only short events (waking, waving, celebrating) animate per frame.
-        let calm = model.isCalm
+        let demo = PipRender.clock != nil
+        let calm = model.isCalm && !demo
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: calm)) { timeline in
-            let t = calm ? 0 : timeline.date.timeIntervalSinceReferenceDate
-            let since = calm ? 10 : max(0, timeline.date.timeIntervalSince(model.moodStarted))
+            let now = PipRender.clock ?? timeline.date
+            let t = calm ? 0 : now.timeIntervalSinceReferenceDate
+            let since = calm ? 10 : max(0, now.timeIntervalSince(model.moodStarted))
             let pose = Pose(mood: model.mood, t: t, since: since, justWoke: model.justWoke)
+            // In the demo, eye glances and blinks follow the fixed clock instead of timers.
+            let eyeX = demo ? CGFloat(sin(t * 1.3) * 7) : lookX
+            let eyeBlink = demo ? t.truncatingRemainder(dividingBy: 3.1) < 0.12 : blink
+            let bubbleIn = demo ? min(1, since / 0.35) : 1
 
             ZStack(alignment: .bottom) {
                 // A frozen burst looks like a smudge in still images, so snapshots skip it.
-                if model.mood == .done && PipRender.useSystemGlass {
-                    ConfettiView(started: model.moodStarted, now: timeline.date)
+                if model.mood == .done && (PipRender.useSystemGlass || demo) {
+                    ConfettiView(started: model.moodStarted, now: now)
                 }
                 if model.mood == .sleeping && !PipRender.useSystemGlass {
-                    SnapshotZs()
+                    SnapshotZs(t: demo ? t : nil)
                 }
 
                 // Ground shadow stays put and shrinks as Pip jumps.
@@ -79,14 +99,16 @@ struct PipView: View {
                 VStack(spacing: 8) {
                     if showsBubble {
                         SpeechBubble(source: model.source, message: model.message)
+                            .scaleEffect(0.6 + 0.4 * easeOutBack(bubbleIn), anchor: .bottom)
+                            .opacity(bubbleIn)
                             .transition(.scale(scale: 0.6, anchor: .bottom).combined(with: .opacity))
                             .id(model.moodStarted)
                     }
-                    BlobView(mood: model.mood, t: t, pose: pose, calm: calm, lookX: lookX, blink: blink)
+                    BlobView(mood: model.mood, t: t, pose: pose, calm: calm, lookX: eyeX, blink: eyeBlink)
                         .frame(width: 128, height: 112)
                 }
                 .padding(.bottom, 8)
-                .offset(y: pose.lift + sink)
+                .offset(y: pose.lift + (PipRender.sinkOverride ?? sink))
             }
             .frame(width: Self.windowSize.width, height: Self.windowSize.height, alignment: .bottom)
         }
@@ -392,14 +414,19 @@ struct BehindWindowBlur: NSViewRepresentable {
 /// On screen the Zs are Core Animation layers (SleepyZView). Snapshots can't capture those,
 /// so this draws them at the same window positions, frozen at three points of their path.
 struct SnapshotZs: View {
+    /// With a time, the Zs float along their path like on screen; without, they're frozen.
+    var t: Double? = nil
+
     var body: some View {
         let h = PipView.windowSize.height
         ZStack {
-            ForEach([0.2, 0.5, 0.8], id: \.self) { p in
+            ForEach([0.2, 0.5, 0.8], id: \.self) { base in
+                let p = t.map { ($0 / 2.9 + base).truncatingRemainder(dividingBy: 1) } ?? base
                 Text("z")
                     .font(.system(size: 15 * (0.85 + 0.65 * p), weight: .heavy, design: .rounded))
-                    .foregroundColor(PipColors.sleepZ)
-                    .shadow(color: .white.opacity(0.9), radius: 1.5)
+                    .foregroundColor(PipRender.darkBackdrop ? Color(red: 0.78, green: 0.78, blue: 1.0) : PipColors.sleepZ)
+                    .shadow(color: PipRender.darkBackdrop ? .clear : .white.opacity(0.9), radius: 1.5)
+                    .opacity(t == nil ? 1 : sin(p * .pi))
                     .position(x: SleepyZView.start.x + SleepyZView.rise.x * p,
                               y: h - (SleepyZView.start.y + SleepyZView.rise.y * p))
             }
