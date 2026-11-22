@@ -31,6 +31,8 @@ final class PipModel: ObservableObject {
 
     /// Skips sounds (used when rendering snapshots).
     var silent = false
+    /// The clock for timestamps; the demo renderer swaps in its own.
+    var now: () -> Date = Date.init
 
     var muted: Bool {
         get { UserDefaults.standard.bool(forKey: "muted") }
@@ -96,7 +98,7 @@ final class PipModel: ObservableObject {
         settled = false
         justWoke = (mood == .sleeping || mood == .hidden) && newMood != .sleeping && newMood != .hidden
         mood = newMood
-        moodStarted = Date()
+        moodStarted = now()
         onInteractiveChange?(newMood == .needsInput || newMood == .done)
         onMoodChange?(newMood)
 
